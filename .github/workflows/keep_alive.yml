@@ -1,0 +1,17 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    # Chay moi 12 phut mot lan de giu Render luon hoat dong (Render ngu dong sau 15 phut)
+    - cron: '*/12 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Web Service
+        run: |
+          echo "Dang ping den Render..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 20 https://video-clipper-3izi.onrender.com/api/logs)
+          echo "Ket qua HTTP Status: $STATUS"
