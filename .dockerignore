@@ -1,0 +1,10 @@
+bin/
+VideoClipper.exe
+run.bat
+uploads/*
+outputs/*
+thumbs/*
+__pycache__/
+*.pyc
+.git
+.vscode

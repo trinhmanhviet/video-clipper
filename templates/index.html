@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Clipper Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="window-container">
+    <!-- Top Tab Bar -->
+    <header class="tab-bar">
+      <div class="tabs-list">
+        <div class="tab-item active" id="tabTitle">
+          <span class="tab-text" id="tabText">Video Clipper</span>
+          <button class="tab-close" title="Làm mới" onclick="resetApp()">✕</button>
+        </div>
+        <button class="tab-new" onclick="resetApp()" title="Tab mới">+ New Tab</button>
+      </div>
+      <div class="window-controls">
+        <button class="win-btn-tool" id="btnPhoneRemote" title="Lấy link & quét mã QR để dùng trên điện thoại">📱 Link Điện Thoại</button>
+        <button class="win-btn-tool" id="btnToggleLogPanel" title="Bật/Tắt khung xem Live Logs trực tiếp">📜 Live Logs</button>
+        <button class="win-btn-tool" id="btnToggleConsole" title="Ẩn/Hiện cửa sổ Console đen">🖥️ Console Window</button>
+        <button class="win-btn close" title="Reset" onclick="resetApp()">✕</button>
+      </div>
+    </header>
+
+    <!-- Source Input & Drop Zone Bar -->
+    <div class="source-bar" id="dropZone">
+      <div class="input-wrapper">
+        <span class="input-icon">🔗</span>
+        <input type="text" id="sourceInput" placeholder="Dán link YouTube (hoặc video web, đường dẫn file PC, hoặc kéo thả video vào đây)..." />
+        <button class="btn-secondary" id="btnPaste" title="Dán từ Clipboard">📋 Dán</button>
+        <button class="btn-secondary" id="btnBrowse" title="Chọn file từ máy tính">📂 Chọn file</button>
+        <input type="file" id="fileInput" accept="video/*" style="display: none;" />
+        <button class="btn-primary" id="btnLoad">🔍 Tải Thông Tin</button>
+      </div>
+      <div class="drop-hint" id="dropHint">Thả file video vào đây để bắt đầu cắt!</div>
+    </div>
+
+    <!-- Main Workspace (Two Columns) -->
+    <main class="main-content">
+      <!-- Left Column: Video & Duration Selector -->
+      <section class="left-col">
+        <!-- Video Preview Container -->
+        <div class="video-card">
+          <div class="video-wrapper" id="videoWrapper">
+            <video id="videoPlayer" controls preload="metadata"></video>
+            <div class="video-placeholder" id="videoPlaceholder">
+              <div class="placeholder-icon">🎬</div>
+              <div class="placeholder-text">Khung xem trước Video</div>
+              <div class="placeholder-sub">Dán link YouTube hoặc kéo thả video từ máy để phát thử</div>
+            </div>
+            <!-- Embedded YouTube Fallback -->
+            <iframe id="ytIframe" class="yt-iframe" allowfullscreen style="display: none;"></iframe>
+          </div>
+        </div>
+
+        <!-- Duration Card -->
+        <div class="duration-card">
+          <div class="duration-header">
+            <span class="duration-title">⏱️ Chọn đoạn cần cắt (Duration)</span>
+            <span class="duration-total" id="totalDurationText">00:30:00</span>
+          </div>
+
+          <!-- Time Inputs Row (Supports Milliseconds) -->
+          <div class="time-inputs-row">
+            <div class="time-group">
+              <span class="clock-icon">🕒</span>
+              <span class="time-label">Bắt đầu</span>
+              <div class="time-input-box">
+                <input type="text" id="startTimeInput" value="00:05:12.000" placeholder="00:00:00.000" />
+                <span class="input-sub-icon">Start</span>
+              </div>
+              <div class="nudge-btns">
+                <button class="btn-nudge" data-target="start" data-delta="-0.1" title="Lùi 100ms">-100ms</button>
+                <button class="btn-nudge" data-target="start" data-delta="0.1" title="Tới 100ms">+100ms</button>
+              </div>
+            </div>
+
+            <div class="time-group">
+              <span class="time-label">Kết thúc</span>
+              <div class="time-input-box">
+                <input type="text" id="endTimeInput" value="00:05:14.000" placeholder="00:00:00.000" />
+                <span class="input-sub-icon">End</span>
+              </div>
+              <div class="nudge-btns">
+                <button class="btn-nudge" data-target="end" data-delta="-0.1" title="Lùi 100ms">-100ms</button>
+                <button class="btn-nudge" data-target="end" data-delta="0.1" title="Tới 100ms">+100ms</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dual Slider Container -->
+          <div class="slider-container">
+            <div class="slider-track" id="sliderTrack">
+              <div class="slider-range-fill" id="sliderRangeFill"></div>
+              <div class="slider-handle" id="startHandle" title="Kéo mốc bắt đầu"></div>
+              <div class="slider-handle" id="endHandle" title="Kéo mốc kết thúc"></div>
+            </div>
+          </div>
+
+          <!-- Quick Duration Helper Buttons -->
+          <div class="quick-actions">
+            <button class="btn-chip" id="btnSetStartCurrent">⏱️ Đặt Start = Giờ hiện tại</button>
+            <button class="btn-chip" id="btnSetEndCurrent">⏱️ Đặt End = Giờ hiện tại</button>
+            <button class="btn-chip" id="btnPreviewSegment">▶️ Xem thử đoạn cắt</button>
+            <span class="cut-length-badge" id="cutLengthBadge">Độ dài cắt: 00:00:02.000</span>
+          </div>
+
+          <!-- BIG PRIMARY ACTION BUTTON -->
+          <button class="btn-main-cta" id="btnMainDownload">
+            🚀 BẮT ĐẦU CẮT & TẢI VIDEO NGAY (DOWNLOAD)
+          </button>
+        </div>
+      </section>
+
+      <!-- Right Column: Info & Download Format Options -->
+      <section class="right-col">
+        <!-- Media Meta Card -->
+        <div class="media-meta-card">
+          <img id="mediaThumb" class="media-thumb" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' fill='%23222'%3E%3Crect width='64' height='64'/%3E%3C/svg%3E" alt="Thumbnail" />
+          <div class="media-info">
+            <div class="media-title" id="mediaTitle">Sẵn sàng tải & cắt video</div>
+            <div class="media-duration" id="mediaDurationSub">Điền link hoặc chọn file bên trên</div>
+          </div>
+        </div>
+
+        <!-- Download Section Header & Tabs -->
+        <div class="download-section-header">
+          <div class="download-title">📥 Chọn chất lượng tải về</div>
+          <div class="format-tabs">
+            <button class="format-tab active" data-type="video">MP4 (Video)</button>
+            <button class="format-tab" data-type="audio">MP3 (Âm thanh)</button>
+          </div>
+        </div>
+
+        <div class="verified-badge">
+          <span class="badge-icon">✓</span>
+          <span class="badge-text">Bấm nút "Tải về ⬇" ở dòng tương ứng bên dưới</span>
+        </div>
+
+        <!-- Frame Extraction Option Card -->
+        <div class="frames-option-card">
+          <div class="frames-header">
+            <div class="frames-title-group">
+              <span class="frames-emoji">📸</span>
+              <div>
+                <div class="frames-title">Xuất đầy đủ ảnh từng Frame</div>
+                <div class="frames-subtitle">Trích xuất mọi khung hình trong đoạn cắt và nén vào file ZIP</div>
+              </div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="chkExtractFrames" />
+              <span class="slider-toggle"></span>
+            </label>
+          </div>
+
+          <div class="frames-controls" id="framesControls" style="display: none;">
+            <div class="control-row">
+              <label>Định dạng ảnh:</label>
+              <select id="frameFormatSelect">
+                <option value="png" selected>PNG (Gốc không nén, độ nét cao nhất)</option>
+                <option value="jpg">JPG (Dung lượng nhẹ)</option>
+              </select>
+            </div>
+            <div class="control-row">
+              <label>Tần số quét Frame:</label>
+              <select id="frameFpsSelect">
+                <option value="native" selected>Tất cả Frame gốc (Full native FPS)</option>
+                <option value="60">60 FPS</option>
+                <option value="30">30 FPS</option>
+                <option value="15">15 FPS</option>
+                <option value="1">1 ảnh / giây (Timelapse)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Format Options List (Cards) -->
+        <div class="formats-list" id="formatsList">
+          <!-- Populated dynamically via JS -->
+        </div>
+
+        <!-- Open Outputs Folder Button -->
+        <button class="btn-open-folder" id="btnOpenFolder">
+          📁 Mở thư mục kết quả (Outputs) trên máy tính
+        </button>
+      </section>
+    </main>
+
+    <!-- Processing Modal / Overlay -->
+    <div class="modal-overlay" id="processModal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <span class="modal-title" id="modalStatusTitle">Đang xử lý cắt video...</span>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <div class="modal-message" id="modalMessage">Đang tải và cắt đoạn video với FFmpeg...</div>
+
+        <!-- Results action box -->
+        <div class="result-actions" id="resultActions" style="display: none;">
+          <a class="btn-result dl-video" id="btnDownloadVideo" href="#" target="_blank">
+            🎬 Bấm để Tải Video đã cắt (.mp4)
+          </a>
+          <a class="btn-result dl-frames" id="btnDownloadFrames" href="#" target="_blank" style="display: none;">
+            📦 Bấm để Tải ZIP ảnh frames (<span id="framesCountText">0</span> ảnh)
+          </a>
+          <button class="btn-result open-dir" id="btnOpenRunFolder">
+            📂 Mở thư mục riêng của đợt cắt này
+          </button>
+          <button class="btn-result open-dir-all" onclick="openOutputFolder('')">
+            📁 Mở thư mục tổng (Outputs)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phone Remote QR Modal -->
+    <div class="modal-overlay" id="qrModal" style="display: none;">
+      <div class="modal-card" style="text-align: center; max-width: 440px;">
+        <div class="modal-header">
+          <span class="modal-title">📱 Dùng Trên Điện Thoại (Remote Link)</span>
+          <button class="modal-close" onclick="closeQrModal()">✕</button>
+        </div>
+        <div style="font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;">
+          Quét mã QR bằng Camera điện thoại hoặc copy đường link bảo mật bên dưới để dùng khi ra ngoài:
+        </div>
+        <div style="display: flex; justify-content: center; margin: 16px 0;" id="qrContainer">
+          <div style="padding: 12px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+            <img id="qrImg" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' fill='%23eee'%3E%3Crect width='180' height='180'/%3E%3C/svg%3E" alt="QR Code" style="width: 180px; height: 180px; display: block;" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; background: #0c0d15; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+          <input type="text" id="tunnelUrlInput" readonly style="flex: 1; background: transparent; border: none; color: #818cf8; font-family: var(--font-mono); font-size: 12px; outline: none;" value="Đang tạo link Remote..." />
+          <button class="btn-secondary" id="btnCopyTunnelUrl" style="padding: 5px 12px; font-size: 12px; white-space: nowrap;">📋 Copy</button>
+        </div>
+        <div style="font-size: 11px; color: #64748b; line-height: 1.5; margin-top: 8px; text-align: left; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px;">
+          ⚡ <b>Miễn phí 100%</b> qua Cloudflare Tunnel.<br>
+          ⚡ Máy tính ở nhà tự động tải & cắt video bằng CPU/GPU mạnh mẽ.<br>
+          ⚡ Điện thoại của bạn chỉ việc tải clip kết quả về máy!
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Log Drawer Panel -->
+    <div class="log-drawer" id="logDrawer" style="display: none;">
+      <div class="log-header">
+        <span class="log-title">📜 Nhật ký hoạt động trực tiếp (Live Logs)</span>
+        <div class="log-actions">
+          <button class="btn-log-action" id="btnClearLogs" title="Xóa toàn bộ log hiện tại">🗑️ Xóa</button>
+          <button class="btn-log-action" id="btnCopyLogs" title="Sao chép nội dung log">📋 Sao chép</button>
+          <button class="btn-log-close" onclick="toggleLogPanel()" title="Đóng khung log">✕</button>
+        </div>
+      </div>
+      <pre class="log-content" id="logContent">Đang khởi tạo nhật ký...</pre>
+    </div>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
