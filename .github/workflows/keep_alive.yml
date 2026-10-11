@@ -2,9 +2,12 @@ name: Keep Render Alive
 
 on:
   schedule:
-    # Chay moi 12 phut mot lan de giu Render luon hoat dong (Render ngu dong sau 15 phut)
-    - cron: '*/12 * * * *'
+    # Chay dinh ky giu Render luon hoat dong (Render ngu dong sau 15 phut)
+    - cron: '*/10 * * * *'
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   ping:
@@ -12,6 +15,10 @@ jobs:
     steps:
       - name: Ping Render Web Service
         run: |
-          echo "Dang ping den Render..."
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 20 https://video-clipper-3izi.onrender.com/api/logs)
-          echo "Ket qua HTTP Status: $STATUS"
+          echo "Dang ping den Render Web Service..."
+          # Render can 45-60s de khoi dong neu dang ngu, dung timeout 120s va retry 3 lan
+          curl -s -f -m 120 --retry 3 --retry-delay 5 "https://video.multigen.store/api/logs" || \
+          curl -s -f -m 120 --retry 3 --retry-delay 5 "https://video-clipper-3izi.onrender.com/api/logs" || \
+          echo "Warning: Render dang khoi dong hoac tam thoi cham."
+          echo "Ping ket thuc thanh cong."
+

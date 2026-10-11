@@ -113,11 +113,40 @@ app = Flask(__name__, template_folder=str(TEMPLATES_DIR), static_folder=str(STAT
 
 tasks = {}
 
+def cleanup_old_files():
+    """Chay ngam dinh ky don dep file cu qua 1 gio de tranh day bo nho / o dia Render."""
+    while True:
+        try:
+            time.sleep(1800)  # Kiem tra moi 30 phut
+            cutoff = time.time() - 3600  # File cu hon 1 tieng
+            for target_dir in [UPLOADS_DIR, THUMBS_DIR]:
+                for f in target_dir.glob("*"):
+                    if f.is_file() and f.stat().st_mtime < cutoff:
+                        try:
+                            f.unlink()
+                        except Exception:
+                            pass
+            for f in OUTPUTS_DIR.glob("*"):
+                if f.is_dir() and f.stat().st_mtime < cutoff:
+                    try:
+                        shutil.rmtree(f, ignore_errors=True)
+                    except Exception:
+                        pass
+                elif f.is_file() and f.stat().st_mtime < cutoff:
+                    try:
+                        f.unlink()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+threading.Thread(target=cleanup_old_files, daemon=True).start()
+
 def get_base_ydl_opts():
     opts = {
         'quiet': False,
         'no_warnings': False,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {'youtube': {'player_client': ['ios', 'mweb', 'android']}},
     }
     if FFMPEG_DIR:
         opts['ffmpeg_location'] = FFMPEG_DIR
@@ -426,6 +455,7 @@ def process_worker(task_id, params):
             if format_id == "mp3":
                 cmd = [
                     FFMPEG_PATH, "-y",
+                    "-threads", "2",
                     "-ss", str(start_sec),
                     "-to", str(end_sec),
                     "-i", source,
@@ -435,6 +465,7 @@ def process_worker(task_id, params):
             else:
                 cmd = [
                     FFMPEG_PATH, "-y",
+                    "-threads", "2",
                     "-ss", str(start_sec),
                     "-to", str(end_sec),
                     "-i", source,
@@ -507,6 +538,7 @@ def process_worker(task_id, params):
 
             cmd_frames = [
                 FFMPEG_PATH, "-y",
+                "-threads", "2",
                 "-i", str(out_video_path),
                 *fps_args,
                 "-q:v", "2",
