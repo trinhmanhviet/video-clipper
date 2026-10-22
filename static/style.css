@@ -783,6 +783,10 @@ input:checked + .slider-toggle:before {
 }
 
 .modal-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow-y: auto;
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;

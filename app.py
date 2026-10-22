@@ -10,6 +10,7 @@ if sys.platform == "win32":
         pass
 
 import json
+import math
 import time
 import uuid
 import shutil
@@ -17,6 +18,7 @@ import zipfile
 import threading
 import subprocess
 import webbrowser
+from collections import Counter
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 
@@ -112,6 +114,40 @@ logger.log(f"Khoi tao Portable Environment: FFMPEG={bool(FFMPEG_PATH)}, FFPROBE=
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR), static_folder=str(STATIC_DIR))
 
 tasks = {}
+active_paths = Counter()
+files_lock = threading.Lock()
+
+
+def run_ffmpeg(cmd, log_path=None):
+    """Keep the useful end of FFmpeg diagnostics, including abnormal exits."""
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if log_path is not None:
+        Path(log_path).write_text(result.stderr or "", encoding="utf-8")
+    if result.returncode != 0:
+        lines = [line.strip() for line in (result.stderr or "").replace("\r", "\n").splitlines()
+                 if line.strip() and not line.startswith(("ffmpeg version", "  built with", "  configuration:"))]
+        detail = "\n".join(lines[-12:])[-1800:]
+        if result.returncode in (-9, 137):
+            detail = "Tiến trình bị máy chủ dừng (có thể thiếu bộ nhớ). Hãy thử đoạn ngắn hơn.\n" + detail
+        if not detail:
+            detail = f"Tiến trình kết thúc với mã {result.returncode}, không có thông tin lỗi."
+        raise RuntimeError(f"FFmpeg lỗi (mã {result.returncode}):\n{detail}")
+    return result
+
+
+def cleanup_expired_files(cutoff):
+    with files_lock:
+        for target_dir in (UPLOADS_DIR, THUMBS_DIR, OUTPUTS_DIR):
+            for path in target_dir.glob("*"):
+                if path.resolve() in active_paths or path.stat().st_mtime >= cutoff:
+                    continue
+                try:
+                    if path.is_dir() and target_dir == OUTPUTS_DIR:
+                        shutil.rmtree(path)
+                    elif path.is_file():
+                        path.unlink()
+                except OSError:
+                    pass
 
 def cleanup_old_files():
     """Chay ngam dinh ky don dep file cu qua 1 gio de tranh day bo nho / o dia Render."""
@@ -119,24 +155,7 @@ def cleanup_old_files():
         try:
             time.sleep(1800)  # Kiem tra moi 30 phut
             cutoff = time.time() - 3600  # File cu hon 1 tieng
-            for target_dir in [UPLOADS_DIR, THUMBS_DIR]:
-                for f in target_dir.glob("*"):
-                    if f.is_file() and f.stat().st_mtime < cutoff:
-                        try:
-                            f.unlink()
-                        except Exception:
-                            pass
-            for f in OUTPUTS_DIR.glob("*"):
-                if f.is_dir() and f.stat().st_mtime < cutoff:
-                    try:
-                        shutil.rmtree(f, ignore_errors=True)
-                    except Exception:
-                        pass
-                elif f.is_file() and f.stat().st_mtime < cutoff:
-                    try:
-                        f.unlink()
-                    except Exception:
-                        pass
+            cleanup_expired_files(cutoff)
         except Exception:
             pass
 
@@ -265,8 +284,15 @@ def download_output_legacy(filename):
 @app.route("/stream/<filename>")
 def stream_video(filename):
     path = UPLOADS_DIR / filename
-    if not path.exists():
-        return "Not found", 404
+    with files_lock:
+        if not path.exists():
+            return "Not found", 404
+        # Playback/seek extends inactivity retention without recreating a
+        # deleted file if another cleanup process won the race.
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass
 
     range_header = request.headers.get("Range", None)
     if not range_header:
@@ -414,6 +440,7 @@ def upload_file():
     return jsonify(info)
 
 def process_worker(task_id, params):
+    reserved_paths = set()
     try:
         tasks[task_id]["status"] = "processing"
         tasks[task_id]["message"] = "Đang bắt đầu quá trình cắt..."
@@ -425,6 +452,16 @@ def process_worker(task_id, params):
 
         start_sec = parse_time_str(params.get("start_time", "00:00:00.000"))
         end_sec = parse_time_str(params.get("end_time", "00:00:10.000"))
+        if not math.isfinite(start_sec) or not math.isfinite(end_sec) or start_sec < 0 or end_sec <= start_sec:
+            raise ValueError("Thời gian kết thúc phải lớn hơn thời gian bắt đầu và không được âm.")
+        if is_local:
+            with files_lock:
+                source_path = Path(source).resolve()
+                if not source_path.is_file():
+                    raise ValueError("File nguồn không còn trên máy chủ (đã hết hạn hoặc máy chủ khởi động lại). Vui lòng tải lại video rồi cắt lại.")
+                source_path.touch()
+                active_paths[source_path] += 1
+                reserved_paths.add(source_path)
         format_id = params.get("format_id", "best")
         extract_frames = params.get("extract_frames", False)
         frame_format = params.get("frame_format", "png")
@@ -439,9 +476,12 @@ def process_worker(task_id, params):
             clean_title = "clip"
         timestamp_slug = time.strftime("%Y%m%d_%H%M%S")
 
-        run_folder_name = f"{clean_title}_{timestamp_slug}"
+        run_folder_name = f"{clean_title}_{timestamp_slug}_{task_id[:8]}"
         run_dir = OUTPUTS_DIR / run_folder_name
         run_dir.mkdir(parents=True, exist_ok=True)
+        with files_lock:
+            active_paths[run_dir.resolve()] += 1
+            reserved_paths.add(run_dir.resolve())
 
         out_ext = "mp3" if format_id == "mp3" else "mp4"
         out_video_name = f"{clean_title}.{out_ext}"
@@ -454,28 +494,33 @@ def process_worker(task_id, params):
             logger.log(f"Chay FFmpeg cat video local...")
             if format_id == "mp3":
                 cmd = [
-                    FFMPEG_PATH, "-y",
+                    FFMPEG_PATH, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                    "-filter_threads", "2",
                     "-threads", "2",
                     "-ss", str(start_sec),
                     "-to", str(end_sec),
                     "-i", source,
                     "-vn", "-acodec", "libmp3lame", "-ab", "320k",
+                    "-threads:a", "2",
                     str(out_video_path)
                 ]
             else:
                 cmd = [
-                    FFMPEG_PATH, "-y",
+                    FFMPEG_PATH, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                    "-filter_threads", "2",
                     "-threads", "2",
                     "-ss", str(start_sec),
                     "-to", str(end_sec),
                     "-i", source,
                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-threads:v", "2",
                     "-c:a", "aac", "-b:a", "192k",
+                    "-threads:a", "2", "-movflags", "+faststart",
                     str(out_video_path)
                 ]
-            p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-            if p.returncode != 0:
-                raise RuntimeError(f"FFmpeg lỗi: {p.stderr[:300]}")
+            run_ffmpeg(cmd, run_dir / "ffmpeg-cut.log")
+            if not out_video_path.is_file() or out_video_path.stat().st_size == 0:
+                raise RuntimeError("Không có dữ liệu trong đoạn đã cắt. Kiểm tra lại khoảng thời gian của video.")
         else:
             tasks[task_id]["message"] = f"Đang tải và cắt từ YouTube ({start_str} -> {end_str})..."
             logger.log(f"Chay yt-dlp tai doan {start_str} den {end_str}...")
@@ -537,17 +582,21 @@ def process_worker(task_id, params):
                 fps_args = ["-vf", f"fps={frame_fps}"]
 
             cmd_frames = [
-                FFMPEG_PATH, "-y",
+                FFMPEG_PATH, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                "-filter_threads", "2",
                 "-threads", "2",
                 "-i", str(out_video_path),
                 *fps_args,
                 "-q:v", "2",
+                "-threads:v", "2",
                 frame_pattern
             ]
-            subprocess.run(cmd_frames, capture_output=True, text=True, encoding="utf-8")
+            run_ffmpeg(cmd_frames, run_dir / "ffmpeg-frames.log")
 
             all_frames = list(frames_folder.glob(f"frame_*.{frame_format}"))
             frames_count = len(all_frames)
+            if frames_count == 0:
+                raise RuntimeError("Không trích xuất được khung hình. Kiểm tra đoạn video và thời gian đã chọn.")
             logger.log(f"Trich xuat thanh cong {frames_count} anh frames")
 
             tasks[task_id]["message"] = f"Đang đóng gói {frames_count} ảnh vào file ZIP..."
@@ -575,6 +624,17 @@ def process_worker(task_id, params):
         tasks[task_id]["status"] = "error"
         tasks[task_id]["message"] = f"Lỗi: {str(e)}"
         logger.log(f"LOI TAC VU: {str(e)}")
+    finally:
+        with files_lock:
+            for path in reserved_paths:
+                active_paths[path] -= 1
+                if active_paths[path] <= 0:
+                    del active_paths[path]
+
+
+@app.route("/api/health")
+def health():
+    return jsonify({"status": "ok", "processing_revision": "2026-10-22-ffmpeg-errors-v1"})
 
 @app.route("/api/process", methods=["POST"])
 def process_video():
