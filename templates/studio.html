@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Video Clipper · Multigen</title><link rel="stylesheet" href="/static/studio.css?v=2"></head>
+<body><header><a class="brand" href="/">MULTIGEN <span>VIDEO CLIPPER</span></a><span class="badge" id="health">Đang kết nối máy xử lý…</span></header>
+<main><section class="intro"><div class="eyebrow">CẮT VIDEO & XUẤT KHUNG HÌNH</div><h1>Chọn đúng đoạn.<br>Xuất đúng thứ bạn cần.</h1><p>Tải video lên, chọn mốc bắt đầu và kết thúc. Theo dõi tiến độ ngay trên trang này.</p></section>
+<section class="card source"><div class="section-title"><span class="number">1</span><h2>Chọn video</h2></div>
+<label class="drop" id="drop"><input id="file" type="file" accept="video/*,.mkv,.webm"><strong>Chọn file hoặc kéo video vào đây</strong><span>MP4, MOV, MKV, WebM · Tối đa 2 GB · Tải theo từng phần</span></label>
+<div class="url-row"><input id="url" type="url" placeholder="Hoặc dán liên kết video công khai"><button id="import" class="secondary">Lấy video</button></div>
+<p id="upload-note" class="muted" role="status"></p><progress id="upload-progress" max="100" value="0" hidden></progress></section>
+<section id="editor" class="editor" hidden><div class="card preview"><div class="section-title"><span class="number">2</span><h2>Chọn đoạn cần cắt</h2></div>
+<h3 id="media-name"></h3><p class="muted" id="media-info"></p><div class="video-wrap"><video id="video" controls preload="metadata" playsinline></video></div>
+<div class="play-tools"><button id="back-frame" class="secondary">← 1 frame</button><span id="current-time">00:00:00.000</span><button id="next-frame" class="secondary">1 frame →</button></div>
+<div class="ranges"><label>Điểm bắt đầu<input id="start-range" type="range" min="0" max="1" value="0" step="0.001"></label><label>Điểm kết thúc<input id="end-range" type="range" min="0" max="1" value="1" step="0.001"></label></div>
+<div class="time-row"><label>Từ<input id="start" value="00:00:00.000" inputmode="decimal"><button id="set-start" class="subtle">Lấy vị trí đang xem</button></label><label>Đến<input id="end" value="00:00:00.000" inputmode="decimal"><button id="set-end" class="subtle">Lấy vị trí đang xem</button></label></div>
+<div class="duration"><span id="selection">Độ dài đoạn: —</span><button id="preview" class="secondary">▶ Xem đoạn đã chọn</button></div></div>
+<aside class="card export"><div class="section-title"><span class="number">3</span><h2>Xuất kết quả</h2></div>
+<label>Định dạng<select id="format"><option value="mp4">Video MP4</option><option value="mp3">Âm thanh MP3</option></select></label>
+<label>Độ phân giải<select id="height"><option value="">Giữ nguyên</option><option value="1080">Tối đa 1080p</option><option value="720">Tối đa 720p</option><option value="480">Tối đa 480p</option></select></label>
+<label class="check"><input id="frames" type="checkbox"> Xuất thêm ảnh frame (ZIP)</label>
+<div id="frame-options" hidden><label>Định dạng ảnh<select id="frame-format"><option value="jpg">JPG — nhẹ, xuất nhanh</option><option value="png">PNG — không mất chất lượng</option></select></label>
+<label>Số frame mỗi giây<select id="fps"><option value="6">6 frame / giây</option><option value="12">12 frame / giây</option><option value="24">24 frame / giây</option><option value="30">30 frame / giây</option><option value="">Tất cả frame gốc</option></select></label></div>
+<p id="estimate" class="muted"></p><button id="export" class="primary">Cắt & xuất</button><p class="hint">Cắt chính xác theo khung hình. Bạn có thể tải lại trang để tiếp tục theo dõi tác vụ.</p></aside></section>
+<section id="job-card" class="card" hidden><div class="job-heading"><div><div class="eyebrow">TÁC VỤ HIỆN TẠI</div><h2 id="job-title">Đang chờ xử lý</h2></div><button id="cancel" class="secondary">Hủy tác vụ</button></div>
+<progress id="job-progress" max="100" value="0"></progress><div class="job-stats"><strong id="percent">0%</strong><span id="elapsed">0 giây</span></div><p id="job-message" role="status"></p>
+<div id="result" hidden><div class="downloads"><a id="download-video" class="primary">Tải video</a><a id="download-frames" class="secondary" hidden>Tải ZIP frame</a></div><video id="result-video" controls playsinline preload="metadata"></video></div></section>
+<div id="error" class="error" role="alert" hidden></div>
+<footer>Video Clipper · Video và kết quả được lưu trên máy xử lý. Máy xử lý cần bật và có Internet.</footer></main>
+<script src="/static/studio.js?v=2"></script></body></html>
