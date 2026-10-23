@@ -7,9 +7,11 @@ import time
 import uuid
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, g, jsonify, render_template, request, send_file
+from werkzeug.wsgi import ClosingIterator
 from store import Store
 from processing import Worker, probe
+from retention import Expired, Retention
 
 BASE = Path(__file__).resolve().parent
 EXTENSIONS = {'.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v', '.mpeg', '.mpg'}
@@ -20,9 +22,54 @@ def create_app(data_dir=None, start_worker=True):
     app.config['MAX_CONTENT_LENGTH'] = 9 * 1024 * 1024
     store = Store(data_dir or os.environ.get('CLIP_DATA_DIR') or BASE / 'data')
     app.extensions['store'] = store
+    retention = Retention(store, seconds=600)
+    app.extensions['retention'] = retention
     upload_lock = threading.Lock()
     if start_worker:
         app.extensions['worker'] = Worker(store)
+        retention.start()
+
+    @app.errorhandler(410)
+    def expired(e):
+        return jsonify(error='File đã tự xoá sau 10 phút không sử dụng. Hãy chọn video hoặc xuất lại.'), 410
+
+    def touch_or_404(table, ident):
+        try:
+            return retention.touch(table, ident)
+        except KeyError:
+            abort(404)
+        except Expired:
+            abort(410)
+
+    @app.before_request
+    def protect_upload():
+        if request.endpoint in ('upload_status', 'upload_chunk', 'complete_upload'):
+            ident = request.view_args['ident']
+            touch_or_404('uploads', ident)
+            _, g.upload_release = retention.acquire('uploads', ident)
+
+    @app.teardown_request
+    def release_upload(error):
+        release = g.pop('upload_release', None)
+        if release:
+            release()
+
+    def pinned_file(table, ident, path, **options):
+        try:
+            _, release = retention.acquire(table, ident)
+        except KeyError:
+            abort(404)
+        except Expired:
+            abort(410)
+        try:
+            response = send_file(path, conditional=True, **options)
+            # send_file uses direct_passthrough; wrap its actual WSGI iterator so
+            # the lease lasts until the server closes the transfer, not just headers.
+            response.response = ClosingIterator(response.response, [release])
+            return response
+        except Exception:
+            release()
+            raise
 
     @app.errorhandler(ValueError)
     def invalid(e):
@@ -40,10 +87,7 @@ def create_app(data_dir=None, start_worker=True):
         return response
 
     def media_or_404(ident):
-        item = store.get('media', ident)
-        if not item:
-            abort(404)
-        return item
+        return touch_or_404('media', ident)
 
     def job_or_404(ident):
         item = store.get('jobs', ident)
@@ -65,6 +109,8 @@ def create_app(data_dir=None, start_worker=True):
     @app.get('/api/health')
     def health():
         return jsonify(status='ok', backend='pc-v2', revision='2026-10-23',
+                       retention_seconds=retention.seconds, cleanup_interval_seconds=30,
+                       retention_enabled=bool(retention.thread and retention.thread.is_alive()),
                        processing=sum(j['status'] == 'processing' for j in store.jobs()))
 
     @app.post('/api/uploads')
@@ -134,13 +180,18 @@ def create_app(data_dir=None, start_worker=True):
     def get_media(ident):
         return jsonify(public_media(media_or_404(ident)))
 
+    @app.post('/api/media/<ident>/touch')
+    def media_activity(ident):
+        media_or_404(ident)
+        return jsonify(status='ok', retention_seconds=retention.seconds)
+
     @app.get('/api/media/<ident>/stream')
     def stream(ident):
         media = media_or_404(ident)
         path = store.media_path(media)
         if not path.exists():
             abort(404)
-        return send_file(path, conditional=True)
+        return pinned_file('media', ident, path)
 
     @app.post('/api/import')
     def import_url():
@@ -195,11 +246,13 @@ def create_app(data_dir=None, start_worker=True):
     @app.get('/api/jobs/<ident>/files/<name>')
     def download(ident, name):
         job = job_or_404(ident)
+        if job['status'] == 'expired':
+            abort(410)
         result = job.get('result') or {}
         if job['status'] != 'completed' or name not in (result.get('video'), result.get('frames')):
             abort(404)
-        return send_file(store.root / 'jobs' / ident / name, conditional=True,
-                         as_attachment=request.args.get('download') == '1', download_name=name)
+        return pinned_file('jobs', ident, store.root / 'jobs' / ident / name,
+                           as_attachment=request.args.get('download') == '1', download_name=name)
 
     return app
 

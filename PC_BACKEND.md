@@ -19,8 +19,13 @@ Public URL: https://video.multigen.store
   Uploads use 4 MiB requests, with offset checking and retry/resume, up to 2 GiB per file.
 - PNG at original resolution can produce very large archives. JPG and a lower frame rate
   are available. The UI shows the estimated number of frames before exporting.
-- Files are retained; there is no one-hour deletion of source files as in the old service.
-  Monitor free disk space. Back up `data/` while the app is stopped for a consistent copy.
+- Files automatically expire after **10 minutes without use**, checked every 30 seconds.
+  Source videos, export folders (including loose frames/ZIP/logs), partial uploads and
+  failed-import fragments are covered. Queued/running jobs and open HTTP file transfers
+  are protected. Transfer close starts a fresh ten-minute window; job-status polling
+  does not extend it. Editing and foreground playback renew the current source.
+  Existing records receive an initial ten-minute grace window when retention starts.
+  Tiny SQLite expiry records and service logs remain for status/diagnostics.
 
 ## Start / stop / inspect
 
